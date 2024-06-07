@@ -1,34 +1,36 @@
-const net = require('net');
-const { exec } = require('child_process');
+const express = require('express');
+const bodyParser = require('body-parser');
+const path = require('path');
 
-// Create a server instance
-const server = net.createServer(socket => {
-    console.log('Java socket connected');
+const app = express();
+const port = 3000;
 
-    // Execute the Python script
-    exec('python AccessControllAccess.py', (error, stdout, stderr) => {
-        if (error) {
-            console.error(`Error executing Python script: ${error}`);
-            return;
-        }
-        console.log(`Python script output: ${stdout}`);
-        // Send the output to the Java client
-        socket.write(stdout);
-    });
+app.use(bodyParser.json());
 
-    // Event listener for client disconnection
-    socket.on('end', () => {
-        console.log('Java socket disconnected');
-    });
+// Set the view engine to ejs
+app.set('view engine', 'ejs');
 
-    // Event listener for errors
-    socket.on('error', err => {
-        console.error('Socket error:', err.message);
-    });
+// Serve static files from the "public" directory
+app.use(express.static('public'));
+
+let receivedData = '';
+
+app.post('/receive-data', (req, res) => {
+    const data = req.body;
+    console.log("Received raw body from Java program:");
+    console.log(req.body); // Log the entire request body
+    console.log("Parsed data field:");
+    console.log(data.data); // Log the specific data field
+
+    receivedData = data.data;
+    
+    res.sendStatus(200);
 });
 
-// Start listening on port 8080
-const PORT = 8080;
-server.listen(PORT, () => {
-    console.log(`Node.js server listening on port ${PORT}`);
+app.get('/', (req, res) => {
+    res.render('index', { data: receivedData });
+});
+
+app.listen(port, () => {
+    console.log(`Node.js app listening at http://localhost:${port}`);
 });

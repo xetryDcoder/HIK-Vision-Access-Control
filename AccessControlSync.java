@@ -1,14 +1,17 @@
 import java.io.*;
 import java.net.*;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import com.sun.net.httpserver.HttpServer;
-import com.sun.net.httpserver.HttpHandler;
-import com.sun.net.httpserver.HttpExchange;
-
 
 public class AccessControlSync extends JFrame {
     private JTextField ipTextField;
@@ -41,41 +44,47 @@ public class AccessControlSync extends JFrame {
 
         add(mainPanel);
 
-        // Start the listener thread
-        new NodeDataListener().start();
+        // Start the scheduled task to run every 10 seconds
+        ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+        scheduler.scheduleAtFixedRate(this::runScheduledTask, 0, 10, TimeUnit.SECONDS);
     }
 
     private class SynchronizeButtonListener implements ActionListener {
         public void actionPerformed(ActionEvent e) {
-            String ipAddress = ipTextField.getText();
-            if (!ipAddress.isEmpty()) {
-                try {
-                    ProcessBuilder pb = new ProcessBuilder("python", "AccessControllAccess.py", ipAddress);
-                    pb.redirectErrorStream(true);
-                    Process process = pb.start();
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+            synchronize();
+        }
+    }
 
-                    StringBuilder output = new StringBuilder();
-                    String line;
-                    while ((line = reader.readLine()) != null) {
-                        output.append(line).append("\n");
-                    }
+    private void synchronize() {
+        String ipAddress = ipTextField.getText();
+        if (!ipAddress.isEmpty()) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder("python", "AccessControllAccess.py", ipAddress);
+                pb.redirectErrorStream(true);
+                Process process = pb.start();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
 
-                    int exitCode = process.waitFor();
-                    outputTextArea.setText(output.toString());
-                    if (exitCode == 0) {
-                        String fileName = "access_control_events_" + getCurrentDate() + ".json";
-                        saveJSON(output.toString(), fileName);
-                    } else {
-                        outputTextArea.append("Failed to synchronize data.\n");
-                    }
-                } catch (IOException | InterruptedException ex) {
-                    ex.printStackTrace();
-                    outputTextArea.setText("Error occurred: " + ex.getMessage());
+                StringBuilder output = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line).append("\n");
                 }
-            } else {
-                outputTextArea.setText("Please provide IP address.");
+
+                int exitCode = process.waitFor();
+                outputTextArea.setText(output.toString());
+                if (exitCode == 0) {
+                    String fileName = "access_control_events_" + getCurrentDate() + ".json";
+                    saveJSON(output.toString(), fileName);
+                    sendDataToNodeJS(output.toString());
+                } else {
+                    outputTextArea.append("Failed to synchronize data.\n");
+                }
+            } catch (IOException | InterruptedException ex) {
+                ex.printStackTrace();
+                outputTextArea.setText("Error occurred: " + ex.getMessage());
             }
+        } else {
+            outputTextArea.setText("Please provide IP address.");
         }
     }
 
@@ -94,62 +103,39 @@ public class AccessControlSync extends JFrame {
         return dateFormat.format(new Date());
     }
 
-    private class NodeDataListener extends Thread {
-        public void run() {
-            try {
-                // Create HTTP server on port 8000
-                HttpServer server = HttpServer.create(new InetSocketAddress(8000), 0);
+    private void sendDataToNodeJS(String data) {
+        // Escape special characters in the data
+        String escapedData = data.replace("\\", "\\\\")
+                                 .replace("\"", "\\\"")
+                                 .replace("\n", "\\n")
+                                 .replace("\r", "\\r");
 
-                // Set handler for "/data" endpoint
-                server.createContext("/data", new HttpHandler() {
-                    public void handle(HttpExchange exchange) throws IOException {
-                        // Execute Python script
-                        String ipAddress = ipTextField.getText();
-                        if (!ipAddress.isEmpty()) {
-                            try {
-                                ProcessBuilder pb = new ProcessBuilder("python", "AccessControllAccess.py", ipAddress);
-                                pb.redirectErrorStream(true);
-                                Process process = pb.start();
-                                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+        String payload = "{ \"data\": \"" + escapedData + "\" }";
 
-                                StringBuilder output = new StringBuilder();
-                                String line;
-                                while ((line = reader.readLine()) != null) {
-                                    output.append(line).append("\n");
-                                }
+        System.out.println("Payload: " + payload); // Log the payload for debugging
 
-                                int exitCode = process.waitFor();
-                                if (exitCode == 0) {
-                                    // Send response with data
-                                    String response = output.toString();
-                                    exchange.sendResponseHeaders(200, response.getBytes().length);
-                                    OutputStream os = exchange.getResponseBody();
-                                    os.write(response.getBytes());
-                                    os.close();
-                                } else {
-                                    // Send error response
-                                    exchange.sendResponseHeaders(500, 0);
-                                    exchange.getResponseBody().close();
-                                }
-                            } catch (IOException | InterruptedException ex) {
-                                ex.printStackTrace();
-                                exchange.sendResponseHeaders(500, 0);
-                                exchange.getResponseBody().close();
-                            }
-                        } else {
-                            // Send error response
-                            exchange.sendResponseHeaders(400, 0);
-                            exchange.getResponseBody().close();
-                        }
-                    }
-                });
+        try {
+            HttpClient httpClient = HttpClient.newHttpClient();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(new URI("http://localhost:3000/receive-data"))
+                    .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                    .header("Content-Type", "application/json")
+                    .build();
 
-                // Start the server
-                server.start();
-            } catch (IOException e) {
-                e.printStackTrace();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() == 200) {
+                System.out.println("Data sent successfully to Node.js API");
+            } else {
+                System.err.println("Failed to send data to Node.js API. Response code: " + response.statusCode());
             }
+        } catch (Exception e) {
+            e.printStackTrace();
         }
+    }
+
+    private void runScheduledTask() {
+        synchronize();
     }
 
     public static void main(String[] args) {

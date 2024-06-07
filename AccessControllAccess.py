@@ -1,7 +1,14 @@
+import sys
 import requests
+from datetime import datetime
 
-def fetch_access_control_events():
-    url = "http://192.168.1.113/ISAPI/AccessControl/AcsEvent?format=json"
+def fetch_access_control_events(ip_address):
+    url = f"http://{ip_address}/ISAPI/AccessControl/AcsEvent?format=json"
+
+    today = datetime.now()
+    start_time = today.strftime("%Y-%m-%dT00:00:00+05:45")
+    end_time = today.replace(hour=23, minute=59, second=59).strftime("%Y-%m-%dT%H:%M:%S+05:45")
+
     payload = {
         "AcsEventCond": {
             "searchID": "1",
@@ -9,30 +16,36 @@ def fetch_access_control_events():
             "maxResults": 999999,
             "major": 0,
             "minor": 0,
-            "startTime": "2024-06-07T00:00:00+05:45",
-            "endTime": "2024-06-07T23:59:59+05:45",
+            "startTime": start_time,
+            "endTime": end_time,
             "eventAttribute": "attendance"
         }
     }
+    
     headers = {
         "Content-Type": "application/json"
     }
-
-    auth = requests.auth.HTTPDigestAuth("your_username", "your_password")
+    
+    auth = requests.auth.HTTPDigestAuth("admin", "Ultimate@22")
 
     try:
         response = requests.post(url, json=payload, headers=headers, auth=auth)
-        response.raise_for_status()  # Raise an exception for bad status codes
+        response.raise_for_status()
         data = response.json()
         return data
     except requests.exceptions.RequestException as e:
         print("Error fetching access control events:", e)
         return None
 
-# Example usage:
-access_control_events = fetch_access_control_events()
-if access_control_events:
-    print(access_control_events)
-    # Process the events further as needed
-else:
-    print("Failed to fetch access control events.")
+if __name__ == "__main__":
+    if len(sys.argv) != 2:
+        print("Usage: python AccessControllAccess.py <IP>")
+        sys.exit(1)
+    
+    ip_address = sys.argv[1]
+    access_control_events = fetch_access_control_events(ip_address)
+    if access_control_events:
+        print(access_control_events)
+        sys.exit(0)  # Return 0 for success
+    else:
+        sys.exit(1)  # Return non-zero for failure
