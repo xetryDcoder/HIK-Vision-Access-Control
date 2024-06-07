@@ -117,7 +117,7 @@ public class AccessControlSync extends JFrame {
         try {
             HttpClient httpClient = HttpClient.newHttpClient();
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(new URI("http://localhost:3000/receive-data"))
+                    .uri(new URI("https://hikvision.hcashbook.com/receive-data"))
                     .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
                     .header("Content-Type", "application/json")
                     .build();
