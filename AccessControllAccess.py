@@ -17,7 +17,7 @@ def fetch_access_control_events():
     headers = {
         "Content-Type": "application/json"
     }
-    auth = requests.auth.HTTPDigestAuth("admin", "Ultimate@22")
+    # auth = requests.auth.HTTPDigestAuth("admin", "Ultimate@22")
 
     try:
         response = requests.post(url, json=payload, headers=headers, auth=auth)
